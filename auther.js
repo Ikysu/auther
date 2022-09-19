@@ -10,7 +10,7 @@ import fastifyCors from 'fastify-cors';
 import { generateToken } from 'node-2fa';
 
 
-var settings =  JSON.parse(fs.readFileSync("settings.json"))
+var settings =  JSON.parse(readFileSync("settings.json"))
 
 
 function getIPLocation(ip) {
