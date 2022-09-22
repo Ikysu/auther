@@ -36,9 +36,7 @@ function getIPLocation(ip) {
 
 
 // Fastify register
-const fastify = fast({
-    logger:true
-})
+const fastify = fast()
 fastify.register(websocketPlugin)
 fastify.register(fastifyCors, { 
     methods:["POST", "GET"],
