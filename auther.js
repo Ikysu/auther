@@ -5,8 +5,8 @@ import fast from 'fastify';
 import fetch from 'node-fetch';
 import md5 from 'md5';
 import { v4 } from 'uuid';
-import websocketPlugin from 'fastify-websocket';
-import fastifyCors from 'fastify-cors';
+import websocketPlugin from '@fastify/websocket';
+import fastifyCors from '@fastify/cors';
 import { generateToken } from 'node-2fa';
 
 
@@ -36,7 +36,9 @@ function getIPLocation(ip) {
 
 
 // Fastify register
-const fastify = fast()
+const fastify = fast({
+    logger:true
+})
 fastify.register(websocketPlugin)
 fastify.register(fastifyCors, { 
     methods:["POST", "GET"],
@@ -210,53 +212,57 @@ var blocklist = []
 
 
 // Fastify pages
-fastify.get('/:auther_id/:auther_appname', { websocket: true }, async (connection, req)=>{
-    var {auther_id, auther_appname} = req.params;
-    if(+auther_id!=NaN&&db[+auther_id]&&db[+auther_id][auther_appname]){
-        if(blocklist.indexOf(auther_id+auther_appname)==-1) {
-            var ip = req.headers["cf-connecting-ip"]
-            var geo = await getIPLocation(ip);
-            var token = md5(auther_id+auther_appname+ip+v4())
-            connection.socket.send("t:"+token)
-            bot.telegram.sendMessage(+auther_id, `Attempt to enter the service "${auther_appname}", with IP ${ip}.${(geo)?"\nLocation: "+geo:""}\nToken: ${token}\n\nAuthorization will be automatically denied after 1 min.`, Markup.inlineKeyboard([
-                Markup.button.callback(`It's me`,'success'),
-                Markup.button.callback(`Block (3h)`,'block')
-            ])).then(ctx=>{
-                stack[token]={
-                    socket:connection.socket,
-                    timer:setTimeout(()=>{
-                        stack[token].act=true;
-                        connection.socket.close(3001, "Timeout.")
-                        bot.telegram.editMessageText(ctx.chat.id, ctx.message_id, "", ctx.text.replace("Authorization will be automatically denied after 1 min.", `❌ Auth denied!`)).catch(e=>{})
-                    }, 60*1000), // 1 min
-                    act:false,
-                    mod:false
-                };
+fastify.register(async function (fastify) {
+    fastify.get('/:auther_id/:auther_appname', { websocket: true }, async (connection, req)=>{
+        let act = connection.socket;
 
-                connection.socket.on("close", ()=>{
-                    clearTimeout(stack[token].timer);
-                    if(stack[token].act==false && stack[token].mod==false){
-                        stack[token].mod=true
-                        bot.telegram.editMessageText(ctx.chat.id, ctx.message_id, "", ctx.text.replace("Authorization will be automatically denied after 1 min.", `❌ Auth denied!`))
-                    }
-                });
-            })
-            
+        var {auther_id, auther_appname} = req.params;
+        if(+auther_id!=NaN&&db[+auther_id]&&db[+auther_id][auther_appname]){
+            if(blocklist.indexOf(auther_id+auther_appname)==-1) {
+                var ip = req.headers["cf-connecting-ip"]
+                var geo = await getIPLocation(ip);
+                var token = md5(auther_id+auther_appname+ip+v4())
+                act.send("t:"+token)
+                bot.telegram.sendMessage(+auther_id, `Attempt to enter the service "${auther_appname}", with IP ${ip}.${(geo)?"\nLocation: "+geo:""}\nToken: ${token}\n\nAuthorization will be automatically denied after 1 min.`, Markup.inlineKeyboard([
+                    Markup.button.callback(`It's me`,'success'),
+                    Markup.button.callback(`Block (3h)`,'block')
+                ])).then(ctx=>{
+                    stack[token]={
+                        socket:act,
+                        timer:setTimeout(()=>{
+                            stack[token].act=true;
+                            act.close(3001, "Timeout.")
+                            bot.telegram.editMessageText(ctx.chat.id, ctx.message_id, "", ctx.text.replace("Authorization will be automatically denied after 1 min.", `❌ Auth denied!`)).catch(e=>{})
+                        }, 60*1000), // 1 min
+                        act:false,
+                        mod:false
+                    };
 
-            // Close codes
-            // 0 - Bad account data.
-            // 1 - Timeout.
-            // 2 - Blocked.
-            // 3 - block - The service is in the block list.
-            // 4 - success - The service is in the block list.
-            // 5 - success - Service not found.
-            // 6 - success - Bad 2fa code.
+                    act.on("close", ()=>{
+                        clearTimeout(stack[token].timer);
+                        if(stack[token].act==false && stack[token].mod==false){
+                            stack[token].mod=true
+                            bot.telegram.editMessageText(ctx.chat.id, ctx.message_id, "", ctx.text.replace("Authorization will be automatically denied after 1 min.", `❌ Auth denied!`))
+                        }
+                    });
+                })
+                
+
+                // Close codes
+                // 0 - Bad account data.
+                // 1 - Timeout.
+                // 2 - Blocked.
+                // 3 - block - The service is in the block list.
+                // 4 - success - The service is in the block list.
+                // 5 - success - Service not found.
+                // 6 - success - Bad 2fa code.
+            }else{
+                act.close(3002, "Blocked.")
+            }
         }else{
-            connection.socket.close(3002, "Blocked.")
+            act.close(3000, "Bad account data.")
         }
-    }else{
-        connection.socket.close(3000, "Bad account data.")
-    }
+    })
 })
 
-fastify.listen(10000, '0.0.0.0')
+fastify.listen(settings.fastify)
