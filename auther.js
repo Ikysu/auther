@@ -1,5 +1,4 @@
 import { Telegraf, Markup } from 'telegraf';
-import { encode, decode } from "messagepack";
 import { readFileSync, writeFileSync } from 'fs';
 import fast from 'fastify';
 import fetch from 'node-fetch';
@@ -51,9 +50,9 @@ var max = {
 }
 
 // Database
-var db = decode(readFileSync("db"))
+var db = JSON.parse(readFileSync("db"))
 setInterval(()=>{
-    writeFileSync("db", encode(db))
+    writeFileSync("db", JSON.stringify(db))
 }, 5000)
 
 
